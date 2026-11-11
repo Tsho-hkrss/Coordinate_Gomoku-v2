@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>直角坐標五子棋</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Noto+Sans+TC:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        boardBg: '#ebd39b',
+                        boardBorder: '#855d1d'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'Noto Sans TC', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+        .board-container {
+            touch-action: none;
+        }
+        .backdrop-anim {
+            transition: opacity 0.25s ease-in-out;
+        }
+        /* 強制直屏：僅對流動觸控裝置 (pointer: coarse) 且處於橫屏時顯示鎖定遮罩，電腦/滑鼠用戶不受影響 */
+        @media screen and (orientation: landscape) and (pointer: coarse) {
+            #portraitLockOverlay {
+                display: flex !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-[#070c18] text-slate-100 min-h-screen flex flex-col justify-center items-center p-2 sm:p-4 select-none">
+
+    <!-- 0. FORCED PORTRAIT OVERLAY (僅流動裝置橫屏時顯示鎖定遮罩) -->
+    <div id="portraitLockOverlay" class="fixed inset-0 bg-[#070c18]/98 z-[100] hidden flex-col items-center justify-center p-6 text-center text-white">
+        <div class="w-20 h-20 mb-6 rounded-3xl bg-amber-500/20 border-2 border-amber-500/50 flex items-center justify-center text-amber-400 text-4xl animate-bounce shadow-xl shadow-amber-500/10">
+            <i class="fa-solid fa-mobile-screen-button"></i>
+        </div>
+        <h2 class="text-2xl font-black mb-2 text-amber-400">請旋轉至直屏（豎屏）模式</h2>
+        <p class="text-slate-300 text-sm max-w-xs leading-relaxed mb-2 font-semibold">
+            本遊戲專為流動裝置直立畫面設計與優化。
+        </p>
+        <p class="text-slate-400 text-xs max-w-xs leading-relaxed">
+            請將你的手機或平板旋轉至垂直方向以繼續對局。
+        </p>
+    </div>
+
+    <!-- 1. GAME START SCREEN OVERLAY (主選單頁面) -->
+    <div id="startScreen" class="fixed inset-0 bg-[#070c18]/95 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl space-y-6">
+            <!-- Header & Title -->
+            <div class="text-center space-y-2">
+                <div class="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center text-white font-extrabold text-xl shadow-lg shadow-sky-500/30">
+                    <i class="fa-solid font-mono">(x,y)</i>
+                </div>
+                <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-white">直角坐標五子棋</h1>
+                <p class="text-xs sm:text-sm text-slate-400">香港中學數學幾何 ✖ 直角坐標對戰</p>
+            </div>
+
+            <!-- Portrait Orientation Notice -->
+            <div class="bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-xl p-3 text-xs font-bold flex items-center space-x-2.5 shadow-sm">
+                <i class="fa-solid fa-mobile-screen-button text-amber-400 text-lg shrink-0"></i>
+                <span>溫馨提示：請將平板或手機屏幕<b>直立（豎屏）</b>使用，以獲得最佳畫面與棋盤佈局！</span>
+            </div>
+
+            <!-- Mode Selection Tabs -->
+            <div class="space-y-3">
+                <label class="text-xs font-extrabold text-slate-400 uppercase tracking-wider block">選擇對戰模式</label>
+                <div class="grid grid-cols-2 gap-3 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+                    <button type="button" id="startBtnPvP" class="py-3 rounded-xl font-extrabold text-sm transition-all bg-sky-600 text-white shadow-md flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-users"></i>
+                        <span>雙人對戰</span>
+                    </button>
+                    <button type="button" id="startBtnPvC" class="py-3 rounded-xl font-extrabold text-sm transition-all text-slate-400 hover:text-white flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-robot"></i>
+                        <span>電腦對戰</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- AI Sub-Options (PvC only) -->
+            <div id="startAiOptions" class="hidden space-y-4 bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80">
+                <div>
+                    <label class="text-xs font-extrabold text-slate-400 mb-2 block">玩家棋子顏色</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <label class="cursor-pointer flex items-center justify-center space-x-2 bg-slate-900 p-2.5 rounded-xl border border-slate-700 has-[:checked]:border-sky-500 has-[:checked]:bg-sky-950/30">
+                            <input type="radio" name="startPvcColor" value="1" checked class="accent-sky-500">
+                            <span class="text-xs font-bold text-white">黑棋 (先手)</span>
+                        </label>
+                        <label class="cursor-pointer flex items-center justify-center space-x-2 bg-slate-900 p-2.5 rounded-xl border border-slate-700 has-[:checked]:border-sky-500 has-[:checked]:bg-sky-950/30">
+                            <input type="radio" name="startPvcColor" value="2" class="accent-sky-500">
+                            <span class="text-xs font-bold text-slate-300">白棋 (後手)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="text-xs font-extrabold text-slate-400 mb-1.5 block">電腦難度</label>
+                    <select id="startAiLevel" class="w-full bg-slate-900 border border-slate-700 text-white text-sm rounded-xl px-3 py-2.5 focus:outline-none font-semibold">
+                        <option value="easy">初級 AI (基礎對抗)</option>
+                        <option value="medium" selected>中級 AI (戰術進攻)</option>
+                        <option value="hard">高級 AI (大師思維)</option>
+                        <option value="master">魔王級 AI 👑 (世界冠軍)</option>
+                        <option value="true_master">真·魔王級 AI 💀 (神級絕望)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Start Game Button -->
+            <button id="btnStartGame" class="w-full py-4 rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black text-base shadow-xl shadow-sky-500/25 active:scale-95 transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-play"></i>
+                <span>開始對局</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. MAIN GAME CONTAINER -->
+    <div class="w-full max-w-[760px] md:max-w-[820px] lg:max-w-[860px] bg-[#0b1329] border border-slate-800 rounded-2xl p-2.5 sm:p-4 shadow-2xl flex flex-col space-y-3">
+        
+        <!-- Header Info Bar -->
+        <header class="w-full bg-[#070d1e]/80 border border-slate-800/80 rounded-xl px-3 sm:px-4 py-2 flex items-center justify-between min-h-[58px]">
+            <div class="flex items-center space-x-2.5">
+                <div id="turnBadge" class="w-7 h-7 rounded-full bg-slate-950 border-2 border-slate-100 flex items-center justify-center shadow-md">
+                    <span id="turnDot" class="w-2.5 h-2.5 rounded-full bg-slate-100"></span>
+                </div>
+                <span id="statusMain" class="text-sm sm:text-base font-black text-white tracking-wide">
+                    黑棋回合 (先手)
+                </span>
+            </div>
+
+            <div id="gameModeBadge" class="bg-sky-600 text-white text-xs font-black px-3.5 py-1 rounded-full shadow">
+                雙人對戰
+            </div>
+
+            <div class="text-right flex flex-col justify-center">
+                <span class="text-[10px] text-slate-400 font-bold tracking-wider">最後落子坐標</span>
+                <span id="lastCoordText" class="text-amber-400 font-mono font-black text-base sm:text-lg leading-none py-0.5">
+                    (-, -)
+                </span>
+                <span id="quadrantText" class="text-sky-400 font-bold text-[11px] sm:text-xs leading-none">
+                    等待落子
+                </span>
+            </div>
+        </header>
+
+        <!-- Board Canvas Container -->
+        <div class="w-full aspect-square bg-[#0b1329] rounded-xl flex items-center justify-center relative board-container">
+            <canvas id="boardCanvas" class="w-full h-full rounded-xl cursor-pointer touch-none"></canvas>
+        </div>
+
+        <!-- Coordinate Manual Input Panel -->
+        <div id="coordInputPanel" class="w-full bg-slate-900 border-2 border-amber-500/60 rounded-xl p-3 shadow-xl space-y-2">
+            <div class="flex items-center justify-between">
+                <span class="text-amber-400 font-extrabold text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-crosshairs"></i>
+                    輸入落子坐標 (X, Y)
+                </span>
+                <div id="inputError" class="text-xs font-bold text-rose-400"></div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-slate-950 p-2 rounded-lg border border-slate-800 flex flex-col items-center">
+                    <span class="text-[11px] font-bold text-slate-400 mb-1">X 軸 (-7 至 7)</span>
+                    <div class="flex items-center space-x-1.5">
+                        <button type="button" id="btnStepXDec" class="w-10 h-10 rounded-lg bg-slate-800 text-amber-400 font-black text-xl active:scale-90">-</button>
+                        <input type="number" id="inputX" min="-7" max="7" placeholder="0" class="w-14 h-10 bg-slate-900 border border-slate-700 rounded-lg text-center text-amber-400 font-mono font-black text-lg focus:outline-none">
+                        <button type="button" id="btnStepXInc" class="w-10 h-10 rounded-lg bg-slate-800 text-amber-400 font-black text-xl active:scale-90">+</button>
+                    </div>
+                </div>
+
+                <div class="bg-slate-950 p-2 rounded-lg border border-slate-800 flex flex-col items-center">
+                    <span class="text-[11px] font-bold text-slate-400 mb-1">Y 軸 (-7 至 7)</span>
+                    <div class="flex items-center space-x-1.5">
+                        <button type="button" id="btnStepYDec" class="w-10 h-10 rounded-lg bg-slate-800 text-amber-400 font-black text-xl active:scale-90">-</button>
+                        <input type="number" id="inputY" min="-7" max="7" placeholder="0" class="w-14 h-10 bg-slate-900 border border-slate-700 rounded-lg text-center text-amber-400 font-mono font-black text-lg focus:outline-none">
+                        <button type="button" id="btnStepYInc" class="w-10 h-10 rounded-lg bg-slate-800 text-amber-400 font-black text-xl active:scale-90">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <button id="btnSubmitCoord" class="w-full h-11 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-sm font-black shadow active:scale-95 transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-location-crosshairs"></i>
+                <span>確認落子</span>
+            </button>
+        </div>
+
+        <!-- Footer Controls Bar -->
+        <footer class="w-full flex flex-wrap items-center justify-between gap-2 pt-1">
+            <button id="btnToggleInputMode" class="bg-[#070d1e] hover:bg-slate-800 text-amber-400 border border-slate-800 px-3.5 py-2 rounded-full font-bold text-xs flex items-center space-x-2 transition active:scale-95 shadow">
+                <i class="fa-solid fa-hand-pointer" id="inputModeIcon"></i>
+                <span id="inputModeText">切換至「直接點擊模式」</span>
+            </button>
+
+            <div class="flex items-center space-x-2 bg-[#070d1e] border border-slate-800 p-1 rounded-full">
+                <button id="btnToggleAxis" class="px-3.5 py-1.5 rounded-full text-sky-400 font-bold text-xs flex items-center space-x-1.5 transition hover:text-sky-300">
+                    <i class="fa-solid fa-eye" id="axisIcon"></i>
+                    <span id="axisToggleText">軸線數字：顯示</span>
+                </button>
+
+                <button id="btnReset" class="bg-sky-600 hover:bg-sky-500 text-white px-4 py-1.5 rounded-full font-black text-xs flex items-center space-x-1.5 transition active:scale-95 shadow">
+                    <i class="fa-solid fa-rotate-right"></i>
+                    <span>重新開局</span>
+                </button>
+            </div>
+        </footer>
+
+    </div>
+
+    <!-- Victory Modal Popup -->
+    <div id="winModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden backdrop-anim">
+        <div id="modalBox" class="bg-slate-900 border border-slate-700 rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl transform scale-90 opacity-0 transition-all duration-300">
+            <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-500 flex items-center justify-center text-slate-950 text-3xl font-black shadow-lg shadow-amber-500/30">
+                <i class="fa-solid fa-trophy"></i>
+            </div>
+            
+            <h2 id="winTitle" class="text-2xl font-black text-white mb-1">黑棋獲勝！</h2>
+            <p id="winDesc" class="text-xs text-slate-400 mb-6">成功連成五子！</p>
+
+            <button id="btnModalPlayAgain" class="w-full py-3 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-extrabold text-sm shadow-lg shadow-sky-500/30 active:scale-95 transition">
+                回到主選單
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const GRID_SIZE = 15; 
+        let canvas = null;
+        let ctx = null;
+        let cellSize = 0;
+        let padding = 0;
+
+        const state = {
+            board: Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(0)),
+            currentPlayer: 1,
+            mode: 'pvp',
+            humanColor: 1,
+            aiLevel: 'medium',
+            showAxisLabels: true,
+            inputMode: 'manual',
+            history: [],
+            isGameOver: false,
+            winningLine: null,
+            hoverPoint: null,
+            selectedPoint: null,
+            isAiThinking: false
+        };
+
+        function rcToMath(r, c) { return { x: c - 7, y: 7 - r }; }
+        function mathToRc(x, y) { return { r: 7 - y, c: x + 7 }; }
+
+        function getQuadrantText(x, y) {
+            if (x === null || y === null) return '等待落子';
+            if (x > 0 && y > 0) return '第一象限 (Quadrant I)';
+            if (x < 0 && y > 0) return '第二象限 (Quadrant II)';
+            if (x < 0 && y < 0) return '第三象限 (Quadrant III)';
+            if (x > 0 && y < 0) return '第四象限 (Quadrant IV)';
+            if (x === 0 && y === 0) return '原點 (Origin)';
+            if (x === 0) return 'Y 軸上 (Y-axis)';
+            if (y === 0) return 'X 軸上 (X-axis)';
+            return '';
+        }
+
+        function resizeCanvas() {
+            if (!canvas) return;
+            const parent = canvas.parentElement;
+            const rect = parent.getBoundingClientRect();
+            const size = Math.min(rect.width, rect.height) || 300;
+            const dpr = window.devicePixelRatio || 1;
+
+            canvas.width = size * dpr;
+            canvas.height = size * dpr;
+            ctx.resetTransform();
+            ctx.scale(dpr, dpr);
+            padding = size * 0.095;
+            cellSize = (size - 2 * padding) / (GRID_SIZE - 1);
+            render();
+        }
+
+        function render() {
+            if (!canvas || !ctx) return;
+            const size = canvas.width / (window.devicePixelRatio || 1);
+
+            ctx.fillStyle = '#ebd39b';
+            ctx.fillRect(0, 0, size, size);
+            ctx.strokeStyle = '#855d1d';
+            ctx.lineWidth = 2.5;
+            ctx.strokeRect(padding - 7, padding - 7, size - 2 * padding + 14, size - 2 * padding + 14);
+
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = '#997338';
+            for (let i = 0; i < GRID_SIZE; i++) {
+                const pos = padding + i * cellSize;
+                ctx.beginPath(); ctx.moveTo(pos, padding); ctx.lineTo(pos, size - padding); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(padding, pos); ctx.lineTo(size - padding, pos); ctx.stroke();
+            }
+
+            const originPos = padding + 7 * cellSize;
+            ctx.lineWidth = 3.5;
+            ctx.strokeStyle = '#b91c1c';
+            ctx.beginPath(); ctx.moveTo(padding - 10, originPos); ctx.lineTo(size - padding + 14, originPos); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(originPos, size - padding + 10); ctx.lineTo(originPos, padding - 14); ctx.stroke();
+
+            const labelFontSize = Math.max(14, Math.round(cellSize * 0.48));
+            ctx.fillStyle = '#b91c1c';
+            ctx.beginPath(); ctx.moveTo(size - padding + 20, originPos); ctx.lineTo(size - padding + 10, originPos - 6); ctx.lineTo(size - padding + 10, originPos + 6); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(originPos, padding - 20); ctx.lineTo(originPos - 6, padding - 10); ctx.lineTo(originPos + 6, padding - 10); ctx.fill();
+
+            ctx.font = `900 ${labelFontSize}px font-mono, sans-serif`;
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = '#ffffff';
+            ctx.fillStyle = '#991b1b';
+            ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+            ctx.strokeText('x', size - padding + 23, originPos); ctx.fillText('x', size - padding + 23, originPos);
+            ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+            ctx.strokeText('y', originPos, padding - 22); ctx.fillText('y', originPos, padding - 22);
+
+            const tickSize = Math.max(4, cellSize * 0.16);
+            ctx.strokeStyle = '#7f1d1d';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < GRID_SIZE; i++) {
+                const pos = padding + i * cellSize;
+                ctx.beginPath(); ctx.moveTo(pos, originPos - tickSize); ctx.lineTo(pos, originPos + tickSize); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(originPos - tickSize, pos); ctx.lineTo(originPos + tickSize, pos); ctx.stroke();
+            }
+
+            if (state.showAxisLabels) {
+                const fontSize = Math.max(13, Math.round(cellSize * 0.44));
+                ctx.font = `900 ${fontSize}px font-mono, sans-serif`;
+                for (let i = 0; i < GRID_SIZE; i++) {
+                    const mathVal = i - 7;
+                    const pos = padding + i * cellSize;
+                    if (mathVal !== 0) {
+                        const valStr = mathVal.toString();
+                        const textY = originPos + tickSize + fontSize * 0.75;
+                        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                        ctx.strokeText(valStr, pos, textY); ctx.fillStyle = '#991b1b'; ctx.fillText(valStr, pos, textY);
+                    }
+                    const mathY = 7 - i;
+                    if (mathY !== 0) {
+                        const valStr = mathY.toString();
+                        const textX = originPos - tickSize - 4;
+                        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+                        ctx.strokeText(valStr, textX, pos); ctx.fillStyle = '#991b1b'; ctx.fillText(valStr, textX, pos);
+                    }
+                }
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 4; ctx.textAlign = 'right'; ctx.textBaseline = 'top';
+                ctx.strokeText('0', originPos - tickSize - 2, originPos + tickSize + 2);
+                ctx.fillStyle = '#991b1b'; ctx.fillText('0', originPos - tickSize - 2, originPos + tickSize + 2);
+            }
+
+            const starPoints = [{ r: 7, c: 7 }, { r: 3, c: 3 }, { r: 3, c: 11 }, { r: 11, c: 3 }, { r: 11, c: 11 }];
+            starPoints.forEach(pt => {
+                const px = padding + pt.c * cellSize;
+                const py = padding + pt.r * cellSize;
+                ctx.fillStyle = '#452b10';
+                ctx.beginPath(); ctx.arc(px, py, pt.r === 7 && pt.c === 7 ? 4.5 : 3.5, 0, Math.PI * 2); ctx.fill();
+            });
+
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (state.board[r][c] !== 0) drawStone(r, c, state.board[r][c]);
+                }
+            }
+
+            const activePreviewPoint = state.selectedPoint || state.hoverPoint;
+            if (activePreviewPoint && !state.isGameOver && !state.isAiThinking && state.inputMode === 'click') {
+                const { r, c } = activePreviewPoint;
+                if (state.board[r][c] === 0) {
+                    const px = padding + c * cellSize;
+                    const py = padding + r * cellSize;
+                    ctx.fillStyle = state.currentPlayer === 1 ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.7)';
+                    ctx.beginPath(); ctx.arc(px, py, cellSize * 0.4, 0, Math.PI * 2); ctx.fill();
+
+                    if (state.selectedPoint) {
+                        ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(px, py, cellSize * 0.44, 0, Math.PI * 2); ctx.stroke();
+                    }
+
+                    const mathPt = rcToMath(r, c);
+                    const coordText = state.selectedPoint ? `(${mathPt.x}, ${mathPt.y}) 點擊確認` : `(${mathPt.x}, ${mathPt.y})`;
+                    ctx.font = `900 ${Math.max(12, Math.round(cellSize * 0.36))}px font-mono, sans-serif`;
+                    const textMetrics = ctx.measureText(coordText);
+                    const badgeHeight = Math.max(20, cellSize * 0.48);
+                    const badgeWidth = textMetrics.width + 14;
+                    const badgeX = px - badgeWidth / 2;
+                    const badgeY = py - cellSize * 0.45 - badgeHeight - 4;
+
+                    ctx.fillStyle = 'rgba(11, 19, 41, 0.95)'; ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5; ctx.beginPath();
+                    if (ctx.roundRect) ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, 6);
+                    else ctx.rect(badgeX, badgeY, badgeWidth, badgeHeight);
+                    ctx.fill(); ctx.stroke();
+                    ctx.fillStyle = '#fbbf24'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                    ctx.fillText(coordText, px, badgeY + badgeHeight / 2);
+                }
+            }
+
+            if (state.history.length > 0) {
+                const lastMove = state.history[state.history.length - 1];
+                const px = padding + lastMove.c * cellSize;
+                const py = padding + lastMove.r * cellSize;
+                ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(px, py, cellSize * 0.22, 0, Math.PI * 2); ctx.stroke();
+            }
+
+            if (state.winningLine) {
+                ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 5; ctx.beginPath();
+                ctx.moveTo(padding + state.winningLine.start.c * cellSize, padding + state.winningLine.start.r * cellSize);
+                ctx.lineTo(padding + state.winningLine.end.c * cellSize, padding + state.winningLine.end.r * cellSize);
+                ctx.stroke();
+            }
+        }
+
+        function drawStone(r, c, player) {
+            const px = padding + c * cellSize;
+            const py = padding + r * cellSize;
+            const radius = cellSize * 0.42;
+
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 6; ctx.shadowOffsetX = 2; ctx.shadowOffsetY = 3;
+            const grad = ctx.createRadialGradient(px - radius * 0.3, py - radius * 0.3, radius * 0.1, px, py, radius);
+            if (player === 1) {
+                grad.addColorStop(0, '#555555'); grad.addColorStop(0.8, '#111111'); grad.addColorStop(1, '#000000');
+            } else {
+                grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.8, '#e2e8f0'); grad.addColorStop(1, '#cbd5e1');
+            }
+            ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
+            ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+        }
+
+        function handleBoardInput(e) {
+            if (state.isGameOver || state.isAiThinking) return;
+            if (state.mode === 'pvc' && state.currentPlayer !== state.humanColor) return;
+
+            const rect = canvas.getBoundingClientRect();
+            let clientX, clientY;
+            if (e.changedTouches && e.changedTouches.length > 0) { clientX = e.changedTouches[0].clientX; clientY = e.changedTouches[0].clientY; }
+            else if (e.touches && e.touches.length > 0) { clientX = e.touches[0].clientX; clientY = e.touches[0].clientY; }
+            else { clientX = e.clientX; clientY = e.clientY; }
+
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
+            const c = Math.round((x - padding) / cellSize);
+            const r = Math.round((y - padding) / cellSize);
+
+            if (r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE) {
+                if (state.inputMode === 'manual') {
+                    // 坐標輸入模式下點擊棋盤不會改變輸入欄坐標
+                    return;
+                } else {
+                    if (state.board[r][c] === 0) {
+                        if (state.selectedPoint && state.selectedPoint.r === r && state.selectedPoint.c === c) {
+                            state.selectedPoint = null; makeMove(r, c);
+                        } else {
+                            state.selectedPoint = { r, c }; render();
+                        }
+                    } else {
+                        state.selectedPoint = null; render();
+                    }
+                }
+            }
+        }
+
+        function submitCoordinateMove() {
+            if (state.isGameOver || state.isAiThinking) return;
+            if (state.mode === 'pvc' && state.currentPlayer !== state.humanColor) return;
+
+            const xVal = parseInt(document.getElementById('inputX').value, 10);
+            const yVal = parseInt(document.getElementById('inputY').value, 10);
+            const errEl = document.getElementById('inputError');
+
+            if (isNaN(xVal) || isNaN(yVal)) { errEl.textContent = '請輸入 X 與 Y 坐標！'; return; }
+            if (xVal < -7 || xVal > 7 || yVal < -7 || yVal > 7) { errEl.textContent = '範圍須為 -7 至 7'; return; }
+            const { r, c } = mathToRc(xVal, yVal);
+            if (state.board[r][c] !== 0) { errEl.textContent = `坐標 (${xVal}, ${yVal}) 已有棋子！`; return; }
+
+            errEl.textContent = '';
+            makeMove(r, c);
+            document.getElementById('inputX').value = ''; document.getElementById('inputY').value = '';
+        }
+
+        function makeMove(r, c) {
+            const player = state.currentPlayer;
+            state.board[r][c] = player;
+            state.history.push({ r, c, player });
+            state.selectedPoint = null;
+
+            const mathPt = rcToMath(r, c);
+            document.getElementById('lastCoordText').textContent = `(${mathPt.x}, ${mathPt.y})`;
+            document.getElementById('quadrantText').textContent = getQuadrantText(mathPt.x, mathPt.y);
+
+            const winRes = checkWin(r, c, player);
+            if (winRes) {
+                state.isGameOver = true; state.winningLine = winRes; render(); showWinModal(player); return;
+            }
+
+            state.currentPlayer = player === 1 ? 2 : 1;
+            updateTurnUI(); render();
+
+            if (!state.isGameOver && state.mode === 'pvc' && state.currentPlayer !== state.humanColor) {
+                state.isAiThinking = true; setTimeout(triggerAiMove, 50);
+            }
+        }
+
+        function updateTurnUI() {
+            const turnDot = document.getElementById('turnDot');
+            const turnBadge = document.getElementById('turnBadge');
+            const statusMain = document.getElementById('statusMain');
+            const gameModeBadge = document.getElementById('gameModeBadge');
+
+            if (gameModeBadge) {
+                const aiText = state.aiLevel === 'easy' ? '初級' : state.aiLevel === 'medium' ? '中級' : state.aiLevel === 'hard' ? '高級' : state.aiLevel === 'master' ? '魔王級👑' : '真·魔王級💀';
+                gameModeBadge.textContent = state.mode === 'pvc' ? `電腦對戰 (${aiText})` : '雙人對戰';
+            }
+            if (state.currentPlayer === 1) {
+                turnDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-100';
+                turnBadge.className = 'w-7 h-7 rounded-full bg-slate-950 border-2 border-slate-100 flex items-center justify-center shadow-md';
+                statusMain.textContent = state.mode === 'pvc' && state.humanColor === 2 ? '黑棋回合 (電腦)' : '黑棋回合 (先手)';
+            } else {
+                turnDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-950';
+                turnBadge.className = 'w-7 h-7 rounded-full bg-slate-100 border-2 border-slate-950 flex items-center justify-center shadow-md';
+                statusMain.textContent = state.mode === 'pvc' && state.humanColor === 1 ? '白棋回合 (電腦)' : '白棋回合 (後手)';
+            }
+        }
+
+        function checkWin(r, c, player) {
+            const dirs = [{ dr: 0, dc: 1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }, { dr: 1, dc: -1 }];
+            for (const d of dirs) {
+                let count = 1; let startR = r, startC = c; let endR = r, endC = c;
+                let nr = r + d.dr, nc = c + d.dc;
+                while (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && state.board[nr][nc] === player) {
+                    count++; endR = nr; endC = nc; nr += d.dr; nc += d.dc;
+                }
+                nr = r - d.dr; nc = c - d.dc;
+                while (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && state.board[nr][nc] === player) {
+                    count++; startR = nr; startC = nc; nr -= d.dr; nc -= d.dc;
+                }
+                if (count >= 5) return { start: { r: startR, c: startC }, end: { r: endR, c: endC } };
+            }
+            return null;
+        }
+
+        function triggerAiMove() {
+            if (state.isGameOver) return;
+            let bestMove = getSmartAiMove();
+            state.isAiThinking = false;
+            if (bestMove) makeMove(bestMove.r, bestMove.c);
+        }
+
+        function getCandidateMoves(dist = 2) {
+            const candidates = [];
+            const visited = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(false));
+            let hasStones = false;
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (state.board[r][c] !== 0) {
+                        hasStones = true;
+                        for (let dr = -dist; dr <= dist; dr++) {
+                            for (let dc = -dist; dc <= dist; dc++) {
+                                const nr = r + dr; const nc = c + dc;
+                                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
+                                    if (state.board[nr][nc] === 0 && !visited[nr][nc]) {
+                                        visited[nr][nc] = true; candidates.push({ r: nr, c: nc });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (!hasStones) return [{ r: 7, c: 7 }];
+            return candidates;
+        }
+
+        function evaluatePoint(r, c, player) {
+            let total = 0;
+            const dirs = [{ dr: 0, dc: 1 }, { dr: 1, dc: 0 }, { dr: 1, dc: 1 }, { dr: 1, dc: -1 }];
+            let openThrees = 0, deadFours = 0, liveFours = 0;
+
+            for (const d of dirs) {
+                let count = 1;
+                let openEnds = 0;
+                let nr = r + d.dr, nc = c + d.dc;
+                while (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && state.board[nr][nc] === player) {
+                    count++; nr += d.dr; nc += d.dc;
+                }
+                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && state.board[nr][nc] === 0) openEnds++;
+
+                nr = r - d.dr; nc = c - d.dc;
+                while (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && state.board[nr][nc] === player) {
+                    count++; nr -= d.dr; nc -= d.dc;
+                }
+                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && state.board[nr][nc] === 0) openEnds++;
+
+                if (count >= 5) return 10000000;
+                else if (count === 4 && openEnds === 2) { total += 100000; liveFours++; }
+                else if (count === 4 && openEnds === 1) { total += 10000; deadFours++; }
+                else if (count === 3 && openEnds === 2) { total += 5000; openThrees++; }
+                else if (count === 3 && openEnds === 1) { total += 500; }
+                else if (count === 2 && openEnds === 2) { total += 100; }
+            }
+
+            // Heavy weights for massive threats
+            if (liveFours >= 1) total += 100000;
+            if (deadFours >= 2) total += 80000;
+            if (deadFours >= 1 && openThrees >= 1) total += 60000;
+            if (openThrees >= 2) total += 20000;
+
+            return total;
+        }
+
+        function getSmartAiMove() {
+            const ai = state.currentPlayer;
+            const opponent = ai === 1 ? 2 : 1;
+            const candidates = getCandidateMoves(2);
+
+            for (const m of candidates) {
+                state.board[m.r][m.c] = ai;
+                if (checkWin(m.r, m.c, ai)) { state.board[m.r][m.c] = 0; return m; }
+                state.board[m.r][m.c] = 0;
+            }
+            for (const m of candidates) {
+                state.board[m.r][m.c] = opponent;
+                if (checkWin(m.r, m.c, opponent)) { state.board[m.r][m.c] = 0; return m; }
+                state.board[m.r][m.c] = 0;
+            }
+
+            if (state.aiLevel === 'easy') {
+                const scored = candidates.map(m => ({ move: m, score: evaluatePoint(m.r, m.c, ai) + evaluatePoint(m.r, m.c, opponent) * 0.8 + Math.random()*20 }));
+                scored.sort((a, b) => b.score - a.score);
+                return scored[Math.floor(Math.random() * Math.min(3, scored.length))].move;
+            } else if (state.aiLevel === 'medium') {
+                let maxScore = -Infinity; let bestMove = candidates[0];
+                for (const m of candidates) {
+                    const score = evaluatePoint(m.r, m.c, ai)*1.1 + evaluatePoint(m.r, m.c, opponent) + (14-Math.abs(m.r-7)-Math.abs(m.c-7));
+                    if (score > maxScore) { maxScore = score; bestMove = m; }
+                }
+                return bestMove;
+            } else {
+                let maxDepth = state.aiLevel === 'true_master' ? 6 : (state.aiLevel === 'master' ? 4 : 2);
+                const scoredCandidates = candidates.map(m => ({ move: m, score: evaluatePoint(m.r, m.c, ai)*1.2 + evaluatePoint(m.r, m.c, opponent) }));
+                scoredCandidates.sort((a, b) => b.score - a.score);
+                const topCandidates = scoredCandidates.slice(0, state.aiLevel === 'true_master' ? 8 : 12).map(c => c.move);
+                
+                let bestMove = topCandidates[0];
+                let alpha = -Infinity; let beta = Infinity; let bestVal = -Infinity;
+                for (const m of topCandidates) {
+                    state.board[m.r][m.c] = ai;
+                    const val = minimax(maxDepth - 1, false, alpha, beta, ai, opponent, m.r, m.c);
+                    state.board[m.r][m.c] = 0;
+                    if (val > bestVal) { bestVal = val; bestMove = m; }
+                    alpha = Math.max(alpha, bestVal);
+                    if (beta <= alpha) break;
+                }
+                return bestMove;
+            }
+        }
+
+        function minimax(depth, isMaximizing, alpha, beta, ai, opponent, lastR, lastC) {
+            const lastPlayer = isMaximizing ? opponent : ai;
+            if (checkWin(lastR, lastC, lastPlayer)) return isMaximizing ? -1000000 - depth : 1000000 + depth;
+            if (depth === 0) {
+                let score = 0;
+                for(let r=0; r<GRID_SIZE; r++) {
+                    for(let c=0; c<GRID_SIZE; c++) {
+                        if(state.board[r][c]===ai) score += evaluatePoint(r,c,ai);
+                        else if(state.board[r][c]===opponent) score -= evaluatePoint(r,c,opponent)*1.05;
+                    }
+                }
+                return score;
+            }
+
+            const candidates = getCandidateMoves(1);
+            if (candidates.length === 0) return 0;
+            const scored = candidates.map(m => ({ move: m, score: evaluatePoint(m.r, m.c, isMaximizing ? ai : opponent) }));
+            scored.sort((a, b) => b.score - a.score);
+            const moveList = scored.slice(0, 8).map(s => s.move);
+
+            if (isMaximizing) {
+                let maxEval = -Infinity;
+                for (const m of moveList) {
+                    state.board[m.r][m.c] = ai;
+                    const ev = minimax(depth - 1, false, alpha, beta, ai, opponent, m.r, m.c);
+                    state.board[m.r][m.c] = 0;
+                    maxEval = Math.max(maxEval, ev);
+                    alpha = Math.max(alpha, ev);
+                    if (beta <= alpha) break;
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for (const m of moveList) {
+                    state.board[m.r][m.c] = opponent;
+                    const ev = minimax(depth - 1, true, alpha, beta, ai, opponent, m.r, m.c);
+                    state.board[m.r][m.c] = 0;
+                    minEval = Math.min(minEval, ev);
+                    beta = Math.min(beta, ev);
+                    if (beta <= alpha) break;
+                }
+                return minEval;
+            }
+        }
+
+        function showWinModal(player) {
+            const modal = document.getElementById('winModal');
+            const modalBox = document.getElementById('modalBox');
+            const winTitle = document.getElementById('winTitle');
+            if (state.mode === 'pvc') winTitle.textContent = player === state.humanColor ? '恭喜你獲勝！ 🎉' : '電腦獲勝！ 🤖';
+            else winTitle.textContent = player === 1 ? '黑棋獲勝！ 🎉' : '白棋獲勝！ 🎉';
+            modal.classList.remove('hidden');
+            setTimeout(() => { modalBox.classList.remove('scale-90', 'opacity-0'); modalBox.classList.add('scale-100', 'opacity-100'); }, 10);
+        }
+
+        function openStartMenu() {
+            state.board = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(0));
+            state.currentPlayer = 1; state.history = []; state.isGameOver = false;
+            state.winningLine = null; state.hoverPoint = null; state.selectedPoint = null; state.isAiThinking = false;
+            document.getElementById('lastCoordText').textContent = '(-, -)';
+            document.getElementById('quadrantText').textContent = '等待落子';
+            const errEl = document.getElementById('inputError'); if (errEl) errEl.textContent = '';
+            
+            const modal = document.getElementById('winModal');
+            const modalBox = document.getElementById('modalBox');
+            modalBox.classList.remove('scale-100', 'opacity-100'); modalBox.classList.add('scale-90', 'opacity-0');
+            modal.classList.add('hidden');
+            document.getElementById('startScreen').classList.remove('hidden');
+            updateTurnUI(); render();
+        }
+
+        function initEvents() {
+            canvas = document.getElementById('boardCanvas'); ctx = canvas.getContext('2d');
+            window.addEventListener('resize', resizeCanvas);
+            canvas.addEventListener('click', handleBoardInput);
+            canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleBoardInput(e); }, { passive: false });
+            canvas.addEventListener('mousemove', (e) => {
+                if (!canvas) return;
+                const rect = canvas.getBoundingClientRect();
+                const c = Math.round((e.clientX - rect.left - padding) / cellSize);
+                const r = Math.round((e.clientY - rect.top - padding) / cellSize);
+                state.hoverPoint = (r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE) ? { r, c } : null;
+                render();
+            });
+            canvas.addEventListener('mouseleave', () => { state.hoverPoint = null; render(); });
+
+            document.getElementById('btnReset').addEventListener('click', openStartMenu);
+            document.getElementById('btnModalPlayAgain').addEventListener('click', openStartMenu);
+
+            const startScreen = document.getElementById('startScreen');
+            const startBtnPvP = document.getElementById('startBtnPvP');
+            const startBtnPvC = document.getElementById('startBtnPvC');
+            const startAiOptions = document.getElementById('startAiOptions');
+            const btnStartGame = document.getElementById('btnStartGame');
+            let tempMode = 'pvp';
+
+            startBtnPvP.addEventListener('click', () => {
+                tempMode = 'pvp';
+                startBtnPvP.className = 'py-3 rounded-xl font-extrabold text-sm transition-all bg-sky-600 text-white shadow-md flex items-center justify-center gap-2';
+                startBtnPvC.className = 'py-3 rounded-xl font-extrabold text-sm transition-all text-slate-400 hover:text-white flex items-center justify-center gap-2';
+                startAiOptions.classList.add('hidden');
+            });
+            startBtnPvC.addEventListener('click', () => {
+                tempMode = 'pvc';
+                startBtnPvC.className = 'py-3 rounded-xl font-extrabold text-sm transition-all bg-sky-600 text-white shadow-md flex items-center justify-center gap-2';
+                startBtnPvP.className = 'py-3 rounded-xl font-extrabold text-sm transition-all text-slate-400 hover:text-white flex items-center justify-center gap-2';
+                startAiOptions.classList.remove('hidden');
+            });
+
+            btnStartGame.addEventListener('click', () => {
+                state.mode = tempMode;
+                if (state.mode === 'pvc') {
+                    const selectedColor = document.querySelector('input[name="startPvcColor"]:checked');
+                    state.humanColor = selectedColor ? parseInt(selectedColor.value) : 1;
+                    state.aiLevel = document.getElementById('startAiLevel').value;
+                }
+                startScreen.classList.add('hidden');
+                
+                state.board = Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(0));
+                state.currentPlayer = 1; state.history = []; state.isGameOver = false;
+                state.winningLine = null; state.hoverPoint = null; state.selectedPoint = null; state.isAiThinking = false;
+                document.getElementById('lastCoordText').textContent = '(-, -)';
+                document.getElementById('quadrantText').textContent = '等待落子';
+
+                updateTurnUI(); render();
+                if (state.mode === 'pvc' && state.humanColor === 2) {
+                    state.isAiThinking = true; setTimeout(triggerAiMove, 400);
+                }
+            });
+
+            const btnToggleInputMode = document.getElementById('btnToggleInputMode');
+            const coordInputPanel = document.getElementById('coordInputPanel');
+            const inputModeText = document.getElementById('inputModeText');
+            const inputModeIcon = document.getElementById('inputModeIcon');
+            btnToggleInputMode.addEventListener('click', () => {
+                state.inputMode = state.inputMode === 'click' ? 'manual' : 'click';
+                if (state.inputMode === 'manual') {
+                    inputModeText.textContent = '切換至「直接點擊模式」'; inputModeIcon.className = 'fa-solid fa-hand-pointer text-amber-400';
+                    coordInputPanel.classList.remove('hidden');
+                } else {
+                    inputModeText.textContent = '切換至「坐標輸入模式」'; inputModeIcon.className = 'fa-solid fa-keyboard text-amber-400';
+                    coordInputPanel.classList.add('hidden');
+                }
+                state.hoverPoint = null; state.selectedPoint = null; render();
+            });
+
+            document.getElementById('btnSubmitCoord').addEventListener('click', submitCoordinateMove);
+            const stepCoord = (inputId, delta) => {
+                const input = document.getElementById(inputId);
+                let val = parseInt(input.value, 10); if (isNaN(val)) val = 0;
+                val += delta; if (val < -7) val = -7; if (val > 7) val = 7;
+                input.value = val; document.getElementById('inputError').textContent = '';
+                const xVal = parseInt(document.getElementById('inputX').value, 10);
+                const yVal = parseInt(document.getElementById('inputY').value, 10);
+                if (!isNaN(xVal) && !isNaN(yVal) && xVal >= -7 && xVal <= 7 && yVal >= -7 && yVal <= 7) {
+                    const { r, c } = mathToRc(xVal, yVal); state.hoverPoint = { r, c }; render();
+                }
+            };
+            document.getElementById('btnStepXDec').addEventListener('click', () => stepCoord('inputX', -1));
+            document.getElementById('btnStepXInc').addEventListener('click', () => stepCoord('inputX', 1));
+            document.getElementById('btnStepYDec').addEventListener('click', () => stepCoord('inputY', -1));
+            document.getElementById('btnStepYInc').addEventListener('click', () => stepCoord('inputY', 1));
+            const handleKeyEnter = (e) => { if (e.key === 'Enter') submitCoordinateMove(); };
+            document.getElementById('inputX').addEventListener('keyup', handleKeyEnter);
+            document.getElementById('inputY').addEventListener('keyup', handleKeyEnter);
+
+            const btnToggleAxis = document.getElementById('btnToggleAxis');
+            if (btnToggleAxis) {
+                btnToggleAxis.addEventListener('click', () => {
+                    state.showAxisLabels = !state.showAxisLabels;
+                    const axisIcon = document.getElementById('axisIcon');
+                    const axisToggleText = document.getElementById('axisToggleText');
+                    if (state.showAxisLabels) {
+                        axisIcon.className = 'fa-solid fa-eye text-sky-400'; axisToggleText.textContent = '軸線數字：顯示';
+                        btnToggleAxis.className = 'px-3.5 py-1.5 rounded-full text-sky-400 font-bold text-xs flex items-center space-x-1.5 transition hover:text-sky-300';
+                    } else {
+                        axisIcon.className = 'fa-solid fa-eye-slash text-slate-500'; axisToggleText.textContent = '軸線數字：隱藏';
+                        btnToggleAxis.className = 'px-3.5 py-1.5 rounded-full text-slate-500 font-bold text-xs flex items-center space-x-1.5 transition hover:text-slate-400';
+                    }
+                    render();
+                });
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => { initEvents(); resizeCanvas(); });
+    </script>
+</body>
+</html>
